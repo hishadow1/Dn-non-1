@@ -18,19 +18,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: vps-data
-          path: /root/mydata
+          path: ${{ github.workspace }}/mydata
         continue-on-error: true
 
       - name: Start SSHX VPS
         run: |
-          mkdir -p /root/mydata
-          cd /root/mydata
+          mkdir -p "${{ github.workspace }}/mydata"
+          cd "${{ github.workspace }}/mydata"
           curl -sSf https://sshx.io/get | sh -s run &
           sleep 5
-          echo "VPS ready. Data folder: /root/mydata"
-          tail -f /dev/null &  # Keeps alive until timeout
+          echo "VPS ready. Data folder: ${{ github.workspace }}/mydata"
+          tail -f /dev/null &  # Keep alive
           PID=$!
-          sleep $((330*60 - 120))  # Stop 2 mins before timeout to save data
+          sleep $((330*60 - 120))  # 2 mins before timeout
           kill $PID
 
       - name: Save Data
@@ -38,7 +38,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vps-data
-          path: /root/mydata
+          path: ${{ github.workspace }}/mydata
 
       - name: Trigger Next Run
         if: always()
@@ -47,5 +47,5 @@ jobs:
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ github.workflow }}/dispatches \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/continuous-vps.yml/dispatches \
             -d '{"ref":"main"}'
