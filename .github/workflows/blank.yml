@@ -1,35 +1,46 @@
-name: noVNC Desktop with LocalXpose
+name: NoVNC with LocalXpose Persistent
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *' # Restart every 6 hours for persistence
+    - cron: "0 */6 * * *" # Every 6 hours restart
 
 jobs:
-  desktop:
+  novnc-vps:
     runs-on: ubuntu-latest
-    timeout-minutes: 330 # 5h30m
+    timeout-minutes: 330 # 5h 30min
 
     steps:
-    - name: Install packages
-      run: |
-        sudo apt update
-        sudo apt install -y xfce4 xfce4-goodies novnc websockify x11vnc wget curl unzip
+      - name: Update & Install Desktop + VNC
+        run: |
+          sudo apt update && sudo apt install -y xfce4 xfce4-goodies novnc websockify tightvncserver wget unzip
+          mkdir -p ~/.vnc
+          echo "123456" | vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+          vncserver :1 -geometry 1280x720 -depth 24
 
-    - name: Set up VNC server
-      run: |
-        export DISPLAY=:1
-        Xvfb :1 -screen 0 1024x768x16 &
-        x11vnc -display :1 -nopw -forever -shared &
-        websockify --web=/usr/share/novnc/ 6080 localhost:5900 &
+      - name: Start NoVNC
+        run: |
+          mkdir -p ~/novnc && cd ~/novnc
+          wget https://github.com/novnc/noVNC/archive/refs/heads/master.zip
+          unzip master.zip && mv noVNC-master/* .
+          ./utils/novnc_proxy --vnc localhost:5901 --listen 6080 &
 
-    - name: Install LocalXpose
-      run: |
-        wget https://api.localxpose.io/api/releases/latest/download/localxpose-linux-x64.zip
-        unzip localxpose-linux-x64.zip
-        sudo mv loclx /usr/local/bin/loclx
-        loclx authtoken ${{ secrets.LOCALXPOSE_TOKEN }}
+      - name: Install LocalXpose
+        run: |
+          wget https://loclx-download.s3.amazonaws.com/loclx-linux-amd64.zip
+          unzip loclx-linux-amd64.zip
+          chmod +x loclx
 
-    - name: Start tunnel
-      run: |
-        loclx tunnel http --to :6080
+      - name: Authenticate LocalXpose
+        run: ./loclx authtoken ${{ secrets.LOCALXPOSE_TOKEN }}
+
+      - name: Start LocalXpose Tunnel
+        run: |
+          ./loclx tunnel http --to 6080 > tunnel.log 2>&1 &
+          sleep 5
+          echo "================================="
+          echo " NoVNC Tunnel Link:"
+          grep -o "https://[0-9a-zA-Z.-]*\.loclx\.io" tunnel.log
+          echo "================================="
+          tail -f /dev/null
