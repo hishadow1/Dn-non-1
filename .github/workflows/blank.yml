@@ -1,51 +1,35 @@
-name: Continuous VPS (Auto-Restart, 5h30m, Persistent Data)
+name: noVNC Desktop with LocalXpose
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/330 * * * *'  # Every 330 minutes (5h30m)
+    - cron: '0 */6 * * *' # Restart every 6 hours for persistence
 
 jobs:
-  vps:
+  desktop:
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 330 # 5h30m
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Install packages
+      run: |
+        sudo apt update
+        sudo apt install -y xfce4 xfce4-goodies novnc websockify x11vnc wget curl unzip
 
-      - name: Restore Data
-        uses: actions/download-artifact@v4
-        with:
-          name: vps-data
-          path: ${{ github.workspace }}/mydata
-        continue-on-error: true
+    - name: Set up VNC server
+      run: |
+        export DISPLAY=:1
+        Xvfb :1 -screen 0 1024x768x16 &
+        x11vnc -display :1 -nopw -forever -shared &
+        websockify --web=/usr/share/novnc/ 6080 localhost:5900 &
 
-      - name: Start SSHX VPS
-        run: |
-          mkdir -p "${{ github.workspace }}/mydata"
-          cd "${{ github.workspace }}/mydata"
-          curl -sSf https://sshx.io/get | sh -s run &
-          sleep 5
-          echo "VPS ready. Data folder: ${{ github.workspace }}/mydata"
-          tail -f /dev/null &  # Keep alive
-          PID=$!
-          sleep $((330*60 - 120))  # 2 mins before timeout
-          kill $PID
+    - name: Install LocalXpose
+      run: |
+        wget https://api.localxpose.io/api/releases/latest/download/localxpose-linux-x64.zip
+        unzip localxpose-linux-x64.zip
+        sudo mv loclx /usr/local/bin/loclx
+        loclx authtoken ${{ secrets.LOCALXPOSE_TOKEN }}
 
-      - name: Save Data
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vps-data
-          path: ${{ github.workspace }}/mydata
-
-      - name: Trigger Next Run
-        if: always()
-        run: |
-          echo "Triggering next run..."
-          curl -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows/continuous-vps.yml/dispatches \
-            -d '{"ref":"main"}'
+    - name: Start tunnel
+      run: |
+        loclx tunnel http --to :6080
